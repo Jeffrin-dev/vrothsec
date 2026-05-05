@@ -141,7 +141,14 @@ const formatFindingsMarkdown = (findings) => {
 /**
  * @param {import('probot').Probot} app
  */
-module.exports = (app) => {
+module.exports = (app, { getRouter } = {}) => {
+  if (typeof getRouter === "function") {
+    const router = getRouter();
+    router.get("/health", (_req, res) => {
+      res.status(200).type("text/plain").send("ok");
+    });
+  }
+
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
     const { owner, repo } = context.repo();
     const pull_number = context.payload.pull_request.number;

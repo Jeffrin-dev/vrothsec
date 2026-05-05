@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: cloudsecurity-probot-app
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ID
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
