@@ -10,23 +10,32 @@ const SEVERITY_CONFIG = {
 
 const ORDERED_SEVERITIES = ["critical", "high", "medium"];
 
-const formatFindingsMarkdown = (findings) => {
-  if (!Array.isArray(findings) || findings.length === 0) {
-    return "## 🔒 Cloud Security Review\n\n✅ No AI or cloud security issues found.";
+const groupFindingsBySeverity = (findings) => findings.reduce((acc, finding) => {
+  const severity = String(finding.severity || "").toLowerCase();
+
+  if (!SEVERITY_CONFIG[severity]) {
+    return acc;
   }
 
-  const groupedFindings = findings.reduce((acc, finding) => {
-    const severity = String(finding.severity || "").toLowerCase();
+  acc[severity].push(finding);
+  return acc;
+}, { critical: [], high: [], medium: [] });
 
-    if (!SEVERITY_CONFIG[severity]) {
-      return acc;
-    }
+const formatFindingsMarkdown = (findings) => {
+  if (!Array.isArray(findings) || findings.length === 0) {
+    return null;
+  }
 
-    acc[severity].push(finding);
-    return acc;
-  }, { critical: [], high: [], medium: [] });
+  const groupedFindings = groupFindingsBySeverity(findings);
+  const hasVisibleFindings = groupedFindings.critical.length > 0 || groupedFindings.high.length > 0;
 
-  const sections = ORDERED_SEVERITIES.flatMap((severity) => {
+  if (!hasVisibleFindings) {
+    return null;
+  }
+
+  const sections = ORDERED_SEVERITIES
+    .filter((severity) => severity !== "medium")
+    .flatMap((severity) => {
     const items = groupedFindings[severity];
 
     if (items.length === 0) {
@@ -51,11 +60,36 @@ const formatFindingsMarkdown = (findings) => {
       })
       .join("\n\n");
 
-    return [`### ${label}`, formattedItems];
+      return [`### ${label}`, formattedItems];
   });
 
-  if (sections.length === 0) {
-    return "## 🔒 Cloud Security Review\n\n✅ No AI or cloud security issues found.";
+  if (groupedFindings.medium.length > 0) {
+    const { label, emoji } = SEVERITY_CONFIG.medium;
+    const mediumItems = groupedFindings.medium
+      .map((finding) => {
+        const file = finding.file || "Unknown";
+        const line = finding.line || "Unknown";
+        const issue = finding.issue || "Not provided";
+        const fix = finding.fix || "Not provided";
+
+        return [
+          `${emoji} **${label}**`,
+          `**File:** ${file}`,
+          `**Line:** ${line}`,
+          `**Issue:** ${issue}`,
+          `**Fix:** ${fix}`
+        ].join("\n");
+      })
+      .join("\n\n");
+
+    sections.push([
+      "<details>",
+      "<summary>🟡 Medium severity findings</summary>",
+      "",
+      mediumItems,
+      "",
+      "</details>"
+    ].join("\n"));
   }
 
   return ["## 🔒 Cloud Security Review", ...sections].join("\n\n");
@@ -109,6 +143,11 @@ module.exports = (app) => {
       const body = formatFindingsMarkdown(findings);
 
       console.log("Gemini security findings:", findings);
+
+      if (!body) {
+        console.log("No critical or high severity findings detected. Skipping PR comment.");
+        return;
+      }
 
       await context.octokit.request(
         "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
