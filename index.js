@@ -9,6 +9,49 @@ const SEVERITY_CONFIG = {
 };
 
 const ORDERED_SEVERITIES = ["critical", "high", "medium"];
+const DIFF_CHUNK_SIZE = 500;
+
+const chunkDiffByLines = (diff, chunkSize = DIFF_CHUNK_SIZE) => {
+  const lines = String(diff || "").split("\n");
+
+  if (lines.length <= chunkSize) {
+    return [diff];
+  }
+
+  const chunks = [];
+
+  for (let i = 0; i < lines.length; i += chunkSize) {
+    chunks.push(lines.slice(i, i + chunkSize).join("\n"));
+  }
+
+  return chunks;
+};
+
+const mergeAndDeduplicateFindings = (findingsByChunk) => {
+  const mergedFindings = [];
+  const seen = new Set();
+
+  for (const chunkFindings of findingsByChunk) {
+    if (!Array.isArray(chunkFindings)) {
+      continue;
+    }
+
+    for (const finding of chunkFindings) {
+      const file = String(finding?.file || "");
+      const line = String(finding?.line || "");
+      const dedupeKey = `${file}:${line}`;
+
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+
+      seen.add(dedupeKey);
+      mergedFindings.push(finding);
+    }
+  }
+
+  return mergedFindings;
+};
 
 const groupFindingsBySeverity = (findings) => findings.reduce((acc, finding) => {
   const severity = String(finding.severity || "").toLowerCase();
@@ -132,14 +175,22 @@ module.exports = (app) => {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const result = await model.generateContent([
-        { text: SECURITY_REVIEW_PROMPT },
-        { text: `PR Diff:\n\n${diff}` }
-      ]);
+      const diffChunks = chunkDiffByLines(diff);
+      const findingsByChunk = [];
 
-      const rawText = result.response.text().trim();
-      const cleanedText = rawText.replace(/^```json\s*|\s*```$/g, "").trim();
-      const findings = JSON.parse(cleanedText);
+      for (const [index, diffChunk] of diffChunks.entries()) {
+        const result = await model.generateContent([
+          { text: SECURITY_REVIEW_PROMPT },
+          { text: `PR Diff (chunk ${index + 1}/${diffChunks.length}):\n\n${diffChunk}` }
+        ]);
+
+        const rawText = result.response.text().trim();
+        const cleanedText = rawText.replace(/^```json\s*|\s*```$/g, "").trim();
+        const chunkFindings = JSON.parse(cleanedText);
+        findingsByChunk.push(chunkFindings);
+      }
+
+      const findings = mergeAndDeduplicateFindings(findingsByChunk);
       const body = formatFindingsMarkdown(findings);
 
       console.log("Gemini security findings:", findings);
