@@ -155,9 +155,11 @@ module.exports = (app, { getRouter } = {}) => {
 
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
     try {
+      console.log("Step 1: Handler triggered");
       const { owner, repo } = context.repo();
       const pull_number = context.payload.pull_request.number;
 
+      console.log("Step 2: Fetching diff");
       const diffResponse = await context.octokit.request(
         "GET /repos/{owner}/{repo}/pulls/{pull_number}",
         {
@@ -171,6 +173,7 @@ module.exports = (app, { getRouter } = {}) => {
       );
 
       const diff = diffResponse.data;
+      console.log("Step 3: Diff fetched, length: " + diff.length);
 
       console.log(
         `
@@ -194,6 +197,7 @@ ${diff}
       const findingsByChunk = [];
 
       for (const [index, diffChunk] of diffChunks.entries()) {
+        console.log("Step 4: Sending to Gemini");
         const result = await model.generateContent([
           { text: SECURITY_REVIEW_PROMPT },
           { text: `PR Diff (chunk ${index + 1}/${diffChunks.length}):
@@ -202,6 +206,7 @@ ${diffChunk}` }
         ]);
 
         const rawText = result.response.text().trim();
+        console.log("Step 5: Gemini response received");
         const cleanedText = rawText.replace(/^```json\s*|\s*```$/g, "").trim();
         const chunkFindings = JSON.parse(cleanedText);
         findingsByChunk.push(chunkFindings);
@@ -217,6 +222,7 @@ ${diffChunk}` }
         return;
       }
 
+      console.log("Step 6: Posting comment");
       await context.octokit.request(
         "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
         {
