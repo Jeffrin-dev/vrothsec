@@ -1,6 +1,9 @@
 if (process.env.PRIVATE_KEY) {
   process.env.PRIVATE_KEY = 
-    process.env.PRIVATE_KEY.replace(/\\n/g, '\n')
+    process.env.PRIVATE_KEY
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '')
+      .trim()
 }
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
