@@ -154,35 +154,39 @@ module.exports = (app, { getRouter } = {}) => {
   }
 
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
-    const { owner, repo } = context.repo();
-    const pull_number = context.payload.pull_request.number;
-
-    const diffResponse = await context.octokit.request(
-      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
-      {
-        owner,
-        repo,
-        pull_number,
-        mediaType: {
-          format: "diff"
-        }
-      }
-    );
-
-    const diff = diffResponse.data;
-
-    console.log(
-      `\n=== PR DIFF (${owner}/${repo}#${pull_number}) - ${new Date().toISOString()} ===\n${diff}\n=== END PR DIFF ===\n`
-    );
-
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      console.error("GEMINI_API_KEY is not set. Skipping Gemini security review.");
-      return;
-    }
-
     try {
+      const { owner, repo } = context.repo();
+      const pull_number = context.payload.pull_request.number;
+
+      const diffResponse = await context.octokit.request(
+        "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+        {
+          owner,
+          repo,
+          pull_number,
+          mediaType: {
+            format: "diff"
+          }
+        }
+      );
+
+      const diff = diffResponse.data;
+
+      console.log(
+        `
+=== PR DIFF (${owner}/${repo}#${pull_number}) - ${new Date().toISOString()} ===
+${diff}
+=== END PR DIFF ===
+`
+      );
+
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      if (!apiKey) {
+        console.error("GEMINI_API_KEY is not set. Skipping Gemini security review.");
+        return;
+      }
+
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -192,7 +196,9 @@ module.exports = (app, { getRouter } = {}) => {
       for (const [index, diffChunk] of diffChunks.entries()) {
         const result = await model.generateContent([
           { text: SECURITY_REVIEW_PROMPT },
-          { text: `PR Diff (chunk ${index + 1}/${diffChunks.length}):\n\n${diffChunk}` }
+          { text: `PR Diff (chunk ${index + 1}/${diffChunks.length}):
+
+${diffChunk}` }
         ]);
 
         const rawText = result.response.text().trim();
@@ -221,7 +227,12 @@ module.exports = (app, { getRouter } = {}) => {
         }
       );
     } catch (error) {
-      console.error("Failed to generate or parse Gemini security findings:", error);
+      console.error("Error in pull_request handler:", {
+        message: error?.message,
+        stack: error?.stack,
+        error
+      });
+      throw error;
     }
   });
 };
