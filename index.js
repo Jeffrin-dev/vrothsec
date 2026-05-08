@@ -145,6 +145,81 @@ const formatFindingsMarkdown = (findings) => {
   return ["## 🔒 Cloud Security Review", ...sections].join("\n\n");
 };
 
+const getSubscribers = async () => {
+  const repo = process.env.GITHUB_DATA_REPO;
+  const token = process.env.GITHUB_DATA_TOKEN;
+
+  if (!repo || !token) {
+    throw new Error("GITHUB_DATA_REPO and GITHUB_DATA_TOKEN must be set");
+  }
+
+  const response = await fetch(`https://api.github.com/repos/${repo}/contents/subscribers.json`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json"
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch subscribers.json: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  const decodedContent = Buffer.from(String(data.content || "").replace(/\n/g, ""), "base64").toString("utf8");
+
+  return {
+    subscribers: JSON.parse(decodedContent),
+    sha: data.sha
+  };
+};
+
+const addSubscriber = async (installationId) => {
+  const repo = process.env.GITHUB_DATA_REPO;
+  const token = process.env.GITHUB_DATA_TOKEN;
+
+  if (!repo || !token) {
+    throw new Error("GITHUB_DATA_REPO and GITHUB_DATA_TOKEN must be set");
+  }
+
+  const { subscribers, sha } = await getSubscribers();
+  const idAsString = String(installationId);
+  const installations = Array.isArray(subscribers.installations) ? subscribers.installations.map(String) : [];
+
+  if (!installations.includes(idAsString)) {
+    installations.push(idAsString);
+  }
+
+  const updatedSubscribers = {
+    ...subscribers,
+    installations
+  };
+
+  const content = Buffer.from(JSON.stringify(updatedSubscribers, null, 2), "utf8").toString("base64");
+
+  const response = await fetch(`https://api.github.com/repos/${repo}/contents/subscribers.json`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: `Add subscriber ${idAsString}`,
+      content,
+      sha
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to update subscribers.json: ${response.status} ${errorText}`);
+  }
+
+  return updatedSubscribers;
+};
+
 /**
  * @param {import('probot').Probot} app
  */
@@ -159,6 +234,41 @@ module.exports = (app, { getRouter } = {}) => {
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
     try {
       console.log("Step 1: Handler triggered");
+      const isPrivate = Boolean(context.payload.repository?.private);
+      const repoFullName = context.payload.repository?.full_name || "unknown/unknown";
+      const installationId = String(context.payload.installation?.id || "");
+
+      console.log(`Repository visibility check (${repoFullName}): ${isPrivate ? "private" : "public"}`);
+
+      if (isPrivate) {
+        const { subscribers } = await getSubscribers();
+        const installations = Array.isArray(subscribers?.installations) ? subscribers.installations.map(String) : [];
+
+        if (!installations.includes(installationId)) {
+          const { owner, repo } = context.repo();
+          const pull_number = context.payload.pull_request.number;
+
+          await context.octokit.request(
+            "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+            {
+              owner,
+              repo,
+              issue_number: pull_number,
+              body: `## 🔒 VrothSec — Subscription Required
+
+VrothSec is **free for public repositories**.
+
+Private repository scanning requires a subscription.
+
+[**Get VrothSec Pro — $15/month →**](https://jeffrin-dev.github.io/VrothSec-site/#pricing)
+
+Once subscribed your repo will be activated within 24 hours.`
+            }
+          );
+          return;
+        }
+      }
+
       const { owner, repo } = context.repo();
       const pull_number = context.payload.pull_request.number;
 
