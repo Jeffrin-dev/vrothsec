@@ -296,12 +296,16 @@ module.exports = (app, { getRouter } = {}) => {
       express.raw({ type: "*/*" }),
       async (req, res) => {
         try {
-          const rawBody = Buffer.isBuffer(req.body)
-            ? req.body.toString("utf8")
-            : await readRequestBodyAsText(req);
           const signatureHeader = typeof req.get === "function"
             ? req.get("Paddle-Signature")
             : req.headers["paddle-signature"];
+
+          if (!signatureHeader) {
+            res.status(401).send("Missing signature");
+            return;
+          }
+
+          const rawBody = req.body;
           const isValidSignature = verifyPaddleSignature({
             secret: process.env.PADDLE_WEBHOOK_SECRET,
             signatureHeader,
@@ -313,20 +317,15 @@ module.exports = (app, { getRouter } = {}) => {
             return;
           }
 
-          const event = JSON.parse(rawBody);
+          const event = JSON.parse(rawBody.toString("utf8"));
 
           if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
-            const installationId = event.data?.custom_data?.installation_id;
-
-            if (installationId) {
-              await addSubscriber(installationId);
-              console.log("Activated installation: " + installationId);
-            }
+            await addSubscriber(event.data.custom_data.installation_id);
           }
 
           res.status(200).send("OK");
         } catch (error) {
-          console.error("Error in Paddle webhook handler:", {
+          app.log.error("Error in Paddle webhook handler:", {
             message: error?.message,
             stack: error?.stack,
             error
