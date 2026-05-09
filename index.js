@@ -6,7 +6,6 @@ if (process.env.PRIVATE_KEY) {
       .trim()
 }
 const crypto = require("node:crypto");
-const express = require("express");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for: hardcoded API keys, overpermissioned IAM policies, exposed secrets, insecure AI endpoints, missing rate limiting, prompt injection risks, unsafe S3 configs. Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
@@ -281,60 +280,7 @@ const addSubscriber = async (installationId) => {
 /**
  * @param {import('probot').Probot} app
  */
-module.exports = (app, { getRouter } = {}) => {
-  if (typeof getRouter === "function") {
-    const router = getRouter("/");
-    router.get("/health", (_req, res) => {
-      res.status(200).type("text/plain").send("ok");
-    });
-
-    router.post(
-      "/paddle/webhook",
-      express.raw({ type: "*/*" }),
-      async (req, res) => {
-        try {
-          const signatureHeader = typeof req.get === "function"
-            ? req.get("Paddle-Signature")
-            : req.headers["paddle-signature"];
-
-          if (!signatureHeader) {
-            res.status(401).send("Missing signature");
-            return;
-          }
-
-          const rawBody = req.body;
-          const isValidSignature = verifyPaddleSignature({
-            secret: process.env.PADDLE_WEBHOOK_SECRET,
-            signatureHeader,
-            rawBody
-          });
-
-          if (!isValidSignature) {
-            res.status(401).send("Invalid signature");
-            return;
-          }
-
-          const event = JSON.parse(rawBody.toString("utf8"));
-
-          if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
-            await addSubscriber(event.data.custom_data.installation_id);
-          }
-
-          res.status(200).send("OK");
-        } catch (error) {
-          app.log.error("Error in Paddle webhook handler:", {
-            message: error?.message,
-            stack: error?.stack,
-            error
-          });
-          res.status(500).send("Internal Server Error");
-        }
-      }
-    );
-
-    console.log("[VrothSec] Routes registered: /health, /paddle/webhook");
-  }
-
+const probotApp = (app) => {
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
     try {
       console.log("Step 1: Handler triggered");
@@ -459,3 +405,7 @@ ${diffChunk}` }
     }
   });
 };
+
+module.exports = probotApp;
+module.exports.addSubscriber = addSubscriber;
+module.exports.verifyPaddleSignature = verifyPaddleSignature;
