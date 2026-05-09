@@ -5,6 +5,7 @@ if (process.env.PRIVATE_KEY) {
       .replace(/\\r/g, '')
       .trim()
 }
+const crypto = require("node:crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for: hardcoded API keys, overpermissioned IAM policies, exposed secrets, insecure AI endpoints, missing rate limiting, prompt injection risks, unsafe S3 configs. Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
@@ -17,6 +18,62 @@ const SEVERITY_CONFIG = {
 
 const ORDERED_SEVERITIES = ["critical", "high", "medium"];
 const DIFF_CHUNK_SIZE = 500;
+
+
+const readRequestBodyAsText = (req) => new Promise((resolve, reject) => {
+  const chunks = [];
+
+  req.setEncoding("utf8");
+  req.on("data", (chunk) => chunks.push(chunk));
+  req.on("end", () => resolve(chunks.join("")));
+  req.on("error", reject);
+});
+
+const parsePaddleSignatureHeader = (signatureHeader) => {
+  const parts = String(signatureHeader || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.reduce((acc, part) => {
+    const separatorIndex = part.indexOf("=");
+
+    if (separatorIndex === -1) {
+      return acc;
+    }
+
+    const key = part.slice(0, separatorIndex);
+    const value = part.slice(separatorIndex + 1);
+
+    acc[key] = value;
+    return acc;
+  }, {});
+};
+
+const verifyPaddleSignature = ({ secret, signatureHeader, rawBody }) => {
+  if (!secret) {
+    throw new Error("PADDLE_WEBHOOK_SECRET must be set");
+  }
+
+  const { ts, h1 } = parsePaddleSignatureHeader(signatureHeader);
+
+  if (!ts || !h1) {
+    return false;
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(`${ts}:${rawBody}`)
+    .digest("hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+  const actualBuffer = Buffer.from(h1, "hex");
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+};
 
 const chunkDiffByLines = (diff, chunkSize = DIFF_CHUNK_SIZE) => {
   const lines = String(diff || "").split("\n");
@@ -229,6 +286,46 @@ module.exports = (app, { getRouter } = {}) => {
     router.get("/health", (_req, res) => {
       res.status(200).type("text/plain").send("ok");
     });
+
+    router.post("/paddle/webhook", async (req, res) => {
+      try {
+        const rawBody = await readRequestBodyAsText(req);
+        const signatureHeader = typeof req.get === "function"
+          ? req.get("Paddle-Signature")
+          : req.headers["paddle-signature"];
+        const isValidSignature = verifyPaddleSignature({
+          secret: process.env.PADDLE_WEBHOOK_SECRET,
+          signatureHeader,
+          rawBody
+        });
+
+        if (!isValidSignature) {
+          res.status(401).send("Invalid signature");
+          return;
+        }
+
+        const event = JSON.parse(rawBody);
+
+        if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
+          const installationId = event.data?.custom_data?.installation_id;
+
+          if (installationId) {
+            await addSubscriber(installationId);
+            console.log("Activated installation: " + installationId);
+          }
+        }
+
+        res.status(200).send("OK");
+      } catch (error) {
+        console.error("Error in Paddle webhook handler:", {
+          message: error?.message,
+          stack: error?.stack,
+          error
+        });
+        res.status(500).send("Internal Server Error");
+      }
+    });
+
   }
 
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
