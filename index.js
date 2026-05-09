@@ -281,7 +281,7 @@ const addSubscriber = async (installationId) => {
 /**
  * @param {import('probot').Probot} app
  */
-module.exports = (app, { getRouter }) => {
+module.exports = (app, { getRouter } = {}) => {
   if (typeof getRouter === "function") {
     const healthRouter = getRouter();
     healthRouter.get("/health", (_req, res) => {
@@ -289,51 +289,53 @@ module.exports = (app, { getRouter }) => {
     });
   }
 
-  const router = getRouter("/paddle/webhook");
-  router.post(
-    "/",
-    express.raw({ type: "*/*" }),
-    async (req, res) => {
-      try {
-        const rawBody = Buffer.isBuffer(req.body)
-          ? req.body.toString("utf8")
-          : await readRequestBodyAsText(req);
-        const signatureHeader = typeof req.get === "function"
-          ? req.get("Paddle-Signature")
-          : req.headers["paddle-signature"];
-        const isValidSignature = verifyPaddleSignature({
-          secret: process.env.PADDLE_WEBHOOK_SECRET,
-          signatureHeader,
-          rawBody
-        });
+  if (typeof getRouter === "function") {
+    const router = getRouter("/paddle/webhook");
+    router.post(
+      "/",
+      express.raw({ type: "*/*" }),
+      async (req, res) => {
+        try {
+          const rawBody = Buffer.isBuffer(req.body)
+            ? req.body.toString("utf8")
+            : await readRequestBodyAsText(req);
+          const signatureHeader = typeof req.get === "function"
+            ? req.get("Paddle-Signature")
+            : req.headers["paddle-signature"];
+          const isValidSignature = verifyPaddleSignature({
+            secret: process.env.PADDLE_WEBHOOK_SECRET,
+            signatureHeader,
+            rawBody
+          });
 
-        if (!isValidSignature) {
-          res.status(401).send("Invalid signature");
-          return;
-        }
-
-        const event = JSON.parse(rawBody);
-
-        if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
-          const installationId = event.data?.custom_data?.installation_id;
-
-          if (installationId) {
-            await addSubscriber(installationId);
-            console.log("Activated installation: " + installationId);
+          if (!isValidSignature) {
+            res.status(401).send("Invalid signature");
+            return;
           }
-        }
 
-        res.status(200).send("OK");
-      } catch (error) {
-        console.error("Error in Paddle webhook handler:", {
-          message: error?.message,
-          stack: error?.stack,
-          error
-        });
-        res.status(500).send("Internal Server Error");
+          const event = JSON.parse(rawBody);
+
+          if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
+            const installationId = event.data?.custom_data?.installation_id;
+
+            if (installationId) {
+              await addSubscriber(installationId);
+              console.log("Activated installation: " + installationId);
+            }
+          }
+
+          res.status(200).send("OK");
+        } catch (error) {
+          console.error("Error in Paddle webhook handler:", {
+            message: error?.message,
+            stack: error?.stack,
+            error
+          });
+          res.status(500).send("Internal Server Error");
+        }
       }
-    }
-  );
+    );
+  }
 
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
     try {
