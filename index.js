@@ -6,6 +6,7 @@ if (process.env.PRIVATE_KEY) {
       .trim()
 }
 const crypto = require("node:crypto");
+const express = require("express");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for: hardcoded API keys, overpermissioned IAM policies, exposed secrets, insecure AI endpoints, missing rate limiting, prompt injection risks, unsafe S3 configs. Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
@@ -280,7 +281,7 @@ const addSubscriber = async (installationId) => {
 /**
  * @param {import('probot').Probot} app
  */
-module.exports = (app, { getRouter } = {}) => {
+module.exports = (app, { getRouter }) => {
   if (typeof getRouter === "function") {
     const healthRouter = getRouter();
     healthRouter.get("/health", (_req, res) => {
@@ -288,8 +289,10 @@ module.exports = (app, { getRouter } = {}) => {
     });
   }
 
-  app.route("/paddle/webhook").post(
-    require("express").raw({ type: "*/*" }),
+  const router = getRouter("/paddle/webhook");
+  router.post(
+    "/",
+    express.raw({ type: "*/*" }),
     async (req, res) => {
       try {
         const rawBody = Buffer.isBuffer(req.body)
