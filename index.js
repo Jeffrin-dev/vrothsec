@@ -290,9 +290,9 @@ module.exports = (app, { getRouter } = {}) => {
   }
 
   if (typeof getRouter === "function") {
-    const router = getRouter("/paddle/webhook");
+    const router = getRouter();
     router.post(
-      "/",
+      "/paddle/webhook",
       express.raw({ type: "*/*" }),
       async (req, res) => {
         try {
