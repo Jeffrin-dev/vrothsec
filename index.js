@@ -260,7 +260,7 @@ VrothSec is **free for public repositories**.
 
 Private repository scanning requires a subscription.
 
-[**Get VrothSec Pro — $15/month →**](https://jeffrin-dev.github.io/VrothSec-site/?installation_id=${context.payload.installation.id}#pricing)
+[**Get VrothSec Pro — $15/month →**](https://vrothsec.vercel.app/?installation_id=${context.payload.installation.id}#pricing)
 
 Once subscribed your repo will be activated within 24 hours.`
             }
