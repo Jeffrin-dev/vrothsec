@@ -283,14 +283,11 @@ const addSubscriber = async (installationId) => {
  */
 module.exports = (app, { getRouter } = {}) => {
   if (typeof getRouter === "function") {
-    const healthRouter = getRouter();
-    healthRouter.get("/health", (_req, res) => {
+    const router = getRouter("/");
+    router.get("/health", (_req, res) => {
       res.status(200).type("text/plain").send("ok");
     });
-  }
 
-  if (typeof getRouter === "function") {
-    const router = getRouter();
     router.post(
       "/paddle/webhook",
       express.raw({ type: "*/*" }),
@@ -334,6 +331,8 @@ module.exports = (app, { getRouter } = {}) => {
         }
       }
     );
+
+    console.log("[VrothSec] Routes registered: /health, /paddle/webhook");
   }
 
   app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
