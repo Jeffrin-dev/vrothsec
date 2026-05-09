@@ -6,6 +6,7 @@ if (process.env.PRIVATE_KEY) {
       .trim()
 }
 const crypto = require("node:crypto");
+const express = require("express");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for: hardcoded API keys, overpermissioned IAM policies, exposed secrets, insecure AI endpoints, missing rate limiting, prompt injection risks, unsafe S3 configs. Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
@@ -282,14 +283,19 @@ const addSubscriber = async (installationId) => {
  */
 module.exports = (app, { getRouter } = {}) => {
   if (typeof getRouter === "function") {
-    const router = getRouter();
-    router.get("/health", (_req, res) => {
+    const healthRouter = getRouter();
+    healthRouter.get("/health", (_req, res) => {
       res.status(200).type("text/plain").send("ok");
     });
 
-    router.post("/paddle/webhook", async (req, res) => {
+    const router = getRouter("/paddle");
+    router.use(express.raw({ type: "*/*" }));
+
+    router.post("/webhook", async (req, res) => {
       try {
-        const rawBody = await readRequestBodyAsText(req);
+        const rawBody = Buffer.isBuffer(req.body)
+          ? req.body.toString("utf8")
+          : await readRequestBodyAsText(req);
         const signatureHeader = typeof req.get === "function"
           ? req.get("Paddle-Signature")
           : req.headers["paddle-signature"];

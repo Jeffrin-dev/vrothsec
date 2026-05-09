@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "probot": "^14.0.0",
+    "express": "^4.21.2",
     "@google/generative-ai": "^0.21.0"
   }
 }
