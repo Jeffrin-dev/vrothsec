@@ -14,6 +14,9 @@ app.post(
   "/paddle/webhook",
   express.raw({ type: "*/*" }),
   async (req, res) => {
+    console.log("Paddle webhook hit");
+    console.log("All headers:", JSON.stringify(req.headers, null, 2));
+
     try {
       const signatureHeader = typeof req.get === "function"
         ? req.get("Paddle-Signature")
@@ -26,20 +29,20 @@ app.post(
 
       const rawBody = req.body;
 
-      // TEMPORARY DEBUG — remove after fix
       console.log("Paddle-Signature header:", signatureHeader);
       console.log("Raw body:", rawBody.toString("utf8"));
-      const { ts, h1 } = require("./index.js").parsePaddleSignatureHeader
-        ? require("./index.js").parsePaddleSignatureHeader(signatureHeader)
-        : signatureHeader.split(";").reduce((a, p) => { const [k,v] = p.split("="); a[k]=v; return a; }, {});
-      const testHmac = require("crypto").createHmac("sha256", process.env.PADDLE_WEBHOOK_SECRET)
+      const { ts, h1 } = signatureHeader.split(";").reduce((a, p) => {
+        const [k, v] = p.split("=");
+        a[k] = v;
+        return a;
+      }, {});
+      const testHmac = require("crypto")
+        .createHmac("sha256", process.env.PADDLE_WEBHOOK_SECRET)
         .update(`${ts}:${rawBody.toString("utf8")}`)
         .digest("hex");
       console.log("Computed HMAC:", testHmac);
       console.log("Received h1:", h1);
-      // END DEBUG
 
-      
       const isValidSignature = verifyPaddleSignature({
         secret: process.env.PADDLE_WEBHOOK_SECRET,
         signatureHeader,
@@ -53,31 +56,14 @@ app.post(
 
       const event = JSON.parse(rawBody.toString("utf8"));
 
-      if (event?.event_type === "subscription.activated" || event?.event_type === "subscription.created") {
+      if (
+        event?.event_type === "subscription.activated" ||
+        event?.event_type === "subscription.created"
+      ) {
         await addSubscriber(event.data.custom_data.installation_id);
       }
 
       res.status(200).send("OK");
     } catch (error) {
       console.error("Error in Paddle webhook handler:", {
-        message: error?.message,
-        stack: error?.stack,
-        error
-      });
-      res.status(500).send("Internal Server Error");
-    }
-  }
-);
-
-const start = async () => {
-  app.use(await createNodeMiddleware(probotApp));
-
-  app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
-  });
-};
-
-start().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exitCode = 1;
-});
+        m
