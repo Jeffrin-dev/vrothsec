@@ -25,6 +25,21 @@ app.post(
       }
 
       const rawBody = req.body;
+
+      // TEMPORARY DEBUG — remove after fix
+      console.log("Paddle-Signature header:", signatureHeader);
+      console.log("Raw body:", rawBody.toString("utf8"));
+      const { ts, h1 } = require("./index.js").parsePaddleSignatureHeader
+        ? require("./index.js").parsePaddleSignatureHeader(signatureHeader)
+        : signatureHeader.split(";").reduce((a, p) => { const [k,v] = p.split("="); a[k]=v; return a; }, {});
+      const testHmac = require("crypto").createHmac("sha256", process.env.PADDLE_WEBHOOK_SECRET)
+        .update(`${ts}:${rawBody.toString("utf8")}`)
+        .digest("hex");
+      console.log("Computed HMAC:", testHmac);
+      console.log("Received h1:", h1);
+      // END DEBUG
+
+      
       const isValidSignature = verifyPaddleSignature({
         secret: process.env.PADDLE_WEBHOOK_SECRET,
         signatureHeader,
