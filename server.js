@@ -66,4 +66,23 @@ app.post(
       res.status(200).send("OK");
     } catch (error) {
       console.error("Error in Paddle webhook handler:", {
-        m
+        message: error?.message,
+        stack: error?.stack,
+        error
+      });
+      res.status(500).send("Internal Server Error");
+    }
+  }
+);
+
+const start = async () => {
+  app.use(await createNodeMiddleware(probotApp));
+  app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
+};
+
+start().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exitCode = 1;
+});
