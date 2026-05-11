@@ -29,20 +29,6 @@ app.post(
 
       const rawBody = req.body;
 
-      console.log("Paddle-Signature header:", signatureHeader);
-      console.log("Raw body:", rawBody.toString("utf8"));
-      const { ts, h1 } = signatureHeader.split(";").reduce((a, p) => {
-        const [k, v] = p.split("=");
-        a[k] = v;
-        return a;
-      }, {});
-      const testHmac = require("crypto")
-        .createHmac("sha256", process.env.PADDLE_WEBHOOK_SECRET)
-        .update(`${ts}:${rawBody.toString("utf8")}`)
-        .digest("hex");
-      console.log("Computed HMAC:", testHmac);
-      console.log("Received h1:", h1);
-
       const isValidSignature = verifyPaddleSignature({
         secret: process.env.PADDLE_WEBHOOK_SECRET,
         signatureHeader,
@@ -60,7 +46,15 @@ app.post(
         event?.event_type === "subscription.activated" ||
         event?.event_type === "subscription.created"
       ) {
-        await addSubscriber(event.data.custom_data.installation_id);
+        const installation_id = event?.data?.custom_data?.installation_id;
+        if (installation_id) {
+          await addSubscriber(installation_id);
+        } else {
+          console.warn(
+            "Paddle webhook missing installation_id — skipping addSubscriber",
+            event?.event_type
+          );
+        }
       }
 
       res.status(200).send("OK");
