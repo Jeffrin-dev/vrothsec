@@ -8,8 +8,19 @@ if (process.env.PRIVATE_KEY) {
 const crypto = require("node:crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for: hardcoded API keys, overpermissioned IAM policies, exposed secrets, insecure AI endpoints, missing rate limiting, prompt injection risks, unsafe S3 configs. Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
-
+const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI and cloud code. Review this diff for:
+- Hardcoded API keys (OpenAI, Anthropic, AWS, GCP, etc.)
+- Overpermissioned IAM policies
+- Exposed secrets
+- Insecure AI endpoints missing authentication or HTTPS
+- Missing rate limiting on inference endpoints
+- Prompt injection risks through retrieval chains or tool use
+- Unsafe S3 bucket configurations (public-read ACL, no encryption)
+- Sensitive prompt or output logging
+- Secrets in Dockerfiles (API keys or passwords in ENV, ARG, or COPY instructions)
+- Exposed model endpoints bound to 0.0.0.0 without an auth gateway
+- Insecure deserialization in ML pipelines (pickle.load on untrusted input, torch.load without weights_only=True, joblib.load on user-supplied files)
+Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
 const SEVERITY_CONFIG = {
   critical: { label: "Critical", emoji: "🔴" },
   high: { label: "High", emoji: "🟠" },
