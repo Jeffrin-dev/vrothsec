@@ -254,14 +254,20 @@ const addSubscriber = async (installationId) => {
   const { subscribers, sha } = await getSubscribers();
   const idAsString = String(installationId);
   const installations = Array.isArray(subscribers.installations) ? subscribers.installations.map(String) : [];
+  const pendingWelcome = Array.isArray(subscribers.pending_welcome) ? subscribers.pending_welcome.map(String) : [];
 
   if (!installations.includes(idAsString)) {
     installations.push(idAsString);
   }
 
+  if (!pendingWelcome.includes(idAsString)) {
+    pendingWelcome.push(idAsString);
+  }
+
   const updatedSubscribers = {
     ...subscribers,
-    installations
+    installations,
+    pending_welcome: pendingWelcome
   };
 
   const content = Buffer.from(JSON.stringify(updatedSubscribers, null, 2), "utf8").toString("base64");
@@ -288,6 +294,47 @@ const addSubscriber = async (installationId) => {
   return updatedSubscribers;
 };
 
+const removeFromPendingWelcome = async (installationId) => {
+  const repo = process.env.GITHUB_DATA_REPO;
+  const token = process.env.GITHUB_DATA_TOKEN;
+
+  if (!repo || !token) {
+    throw new Error("GITHUB_DATA_REPO and GITHUB_DATA_TOKEN must be set");
+  }
+
+  const { subscribers, sha } = await getSubscribers();
+  const idAsString = String(installationId);
+  const pendingWelcome = Array.isArray(subscribers.pending_welcome) ? subscribers.pending_welcome.map(String) : [];
+
+  const updatedSubscribers = {
+    ...subscribers,
+    pending_welcome: pendingWelcome.filter((id) => id !== idAsString)
+  };
+
+  const content = Buffer.from(JSON.stringify(updatedSubscribers, null, 2), "utf8").toString("base64");
+
+  const response = await fetch(`https://api.github.com/repos/${repo}/contents/subscribers.json`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: `Welcome sent to ${idAsString}`,
+      content,
+      sha
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to update subscribers.json: ${response.status} ${errorText}`);
+  }
+
+  return updatedSubscribers;
+};
+
 /**
  * @param {import('probot').Probot} app
  */
@@ -301,9 +348,12 @@ const probotApp = (app) => {
 
       console.log(`Repository visibility check (${repoFullName}): ${isPrivate ? "private" : "public"}`);
 
+      let isNewSubscriber = false;
+
       if (isPrivate) {
         const { subscribers } = await getSubscribers();
         const installations = Array.isArray(subscribers?.installations) ? subscribers.installations.map(String) : [];
+        const pendingWelcome = Array.isArray(subscribers?.pending_welcome) ? subscribers.pending_welcome.map(String) : [];
 
         if (!installations.includes(installationId)) {
           const { owner, repo } = context.repo();
@@ -327,6 +377,11 @@ Once subscribed your repo will be activated within 24 hours.`
             }
           );
           return;
+        }
+
+        if (pendingWelcome.includes(installationId)) {
+          isNewSubscriber = true;
+          await removeFromPendingWelcome(installationId);
         }
       }
 
@@ -387,7 +442,9 @@ ${diffChunk}` }
       }
 
       const findings = mergeAndDeduplicateFindings(findingsByChunk);
-      const body = formatFindingsMarkdown(findings);
+      const findingsBody = formatFindingsMarkdown(findings);
+      const welcomeBanner = "## ✅ VrothSec Pro Activated\nYour private repository is now protected. Security review running on every PR.\n\n---\n\n";
+      const body = isNewSubscriber ? `${welcomeBanner}${findingsBody || ""}` : findingsBody;
 
       console.log("Gemini security findings:", findings);
 
@@ -419,4 +476,5 @@ ${diffChunk}` }
 
 module.exports = probotApp;
 module.exports.addSubscriber = addSubscriber;
+module.exports.removeFromPendingWelcome = removeFromPendingWelcome;
 module.exports.verifyPaddleSignature = verifyPaddleSignature;
