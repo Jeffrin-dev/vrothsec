@@ -17,7 +17,7 @@ const SECURITY_REVIEW_PROMPT = `You are a security reviewer specializing in AI a
 - Prompt injection risks through retrieval chains or tool use
 - Unsafe S3 bucket configurations (public-read ACL, no encryption)
 - Sensitive prompt or output logging
-- Secrets in Dockerfiles (API keys or passwords in ENV, ARG, or COPY instructions)
+- Secrets hardcoded in Dockerfiles: API keys, tokens, or passwords set via ENV or ARG instructions (flag even if key looks like a placeholder — treat all patterns matching secret formats as critical)
 - Exposed model endpoints bound to 0.0.0.0 without an auth gateway
 - Insecure deserialization in ML pipelines (pickle.load on untrusted input, torch.load without weights_only=True, joblib.load on user-supplied files)
 Return ONLY a JSON array of findings with fields: severity (critical/high/medium), file, line, issue, fix. If no issues found return an empty array [].`;
